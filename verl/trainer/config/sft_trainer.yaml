@@ -23,6 +23,11 @@ data:
     path: null
     name: null
   use_shm: False
+  # vlm config
+  dataset_dir: ""
+  media_dir: ""
+  max_pixels: 1003520
+  min_pixels: null
 model:
   partial_pretrain: ~/models/gemma-1.1-7b-it
   use_shm: False
@@ -30,6 +35,7 @@ model:
     model_dtype: fp32
     wrap_policy:
       min_num_params: 0
+      transformer_layer_cls_to_wrap: ["Qwen2_5_VLDecoderLayer"]
     cpu_offload: False
     offload_params: False
   external_lib: null
@@ -40,6 +46,8 @@ model:
   target_modules: all-linear  # Target modules for LoRA adaptation
   use_liger: False
   strategy: fsdp2
+  freeze_vision_tower: True
+  freeze_multi_modal_projector: True
 optim:
   lr: 1e-5
   betas: [0.9, 0.95]
@@ -65,3 +73,6 @@ trainer:
   nnodes: 1
   n_gpus_per_node: 8
   max_ckpt_to_keep: null # TODO
+
+  profile: False
+  profile_name: profile_tmp
