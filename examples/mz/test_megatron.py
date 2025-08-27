@@ -13,12 +13,77 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.models.gpt.gpt_model import GPTModel
 from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_local_spec
 from megatron.core.datasets.utils import compile_helpers
+from megatron.core.datasets.megatron_tokenizer import MegatronTokenizer
 from megatron.core.datasets.blended_megatron_dataset_builder import BlendedMegatronDatasetBuilder
 from megatron.core.datasets.gpt_dataset import GPTDatasetConfig, MockGPTDataset
-from megatron.training.tokenizer.tokenizer import _NullTokenizer
 
 
 _SEQUENCE_LENGTH = 64
+
+
+def print_rank_0(message, rank=None):
+    """If distributed is initialized or rank is specified, print only on rank 0."""
+    if rank is not None:
+        if rank == 0:
+            print(message, flush=True)
+    elif torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            print(message, flush=True)
+    else:
+        print(message, flush=True)
+
+
+class _NullTokenizer(MegatronTokenizer):
+    def __init__(self, vocab_size):
+        super().__init__(None, vocab_size=vocab_size)
+        self._vocab_size_without_eod = int(vocab_size)
+        self._eod_id = self._vocab_size_without_eod
+
+    def tokenize(self, text):
+        return [int(x) for x in text.split(' ')]
+
+    def detokenize(self, ids):
+        text = [str(x) for x in ids]
+        return ' '.join(text)
+
+    def offsets(self, ids: list[int], text: str) -> list[int]:
+        offsets, start_idx = [], 0
+        for id_ in ids:
+            offsets.append(start_idx)
+            start_idx += 1 + len(str(id_))
+        return offsets
+
+    @property
+    def vocab_size(self):
+        return self._vocab_size_without_eod + 1
+
+    @property
+    def vocab(self):
+        raise NotImplementedError
+
+    @property
+    def inv_vocab(self):
+        raise NotImplementedError
+
+    @property
+    def cls(self):
+        return -1
+
+    @property
+    def sep(self):
+        return -1
+
+    @property
+    def mask(self):
+        return -1
+
+    @property
+    def eod(self):
+        return self._eod_id
+
+    @property
+    def additional_special_tokens_ids(self):
+        return None
 
 
 def initialize_distributed(tensor_model_parallel_size=1, pipeline_model_parallel_size=1):
@@ -32,6 +97,7 @@ def initialize_distributed(tensor_model_parallel_size=1, pipeline_model_parallel
 
     # Megatron core distributed training initialization
     parallel_state.initialize_model_parallel(tensor_model_parallel_size, pipeline_model_parallel_size)
+
 
 def model_provider():
     """Build the model."""
@@ -52,6 +118,7 @@ def model_provider():
     )
 
     return gpt_model
+
 
 def get_train_data_iterator():
     if torch.distributed.is_available() and torch.distributed.is_initialized():
@@ -81,6 +148,7 @@ def get_train_data_iterator():
 
     return train_iterator
 
+
 def forward_step_func(data_iterator, model):
 
     def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
@@ -105,15 +173,18 @@ def forward_step_func(data_iterator, model):
 
     return output_tensor, partial(loss_func, loss_mask)
 
+
 def save_distributed_checkpoint(checkpoint_path, gpt_model):
     sharded_state_dict = gpt_model.sharded_state_dict(prefix='')
     dist_checkpointing.save(sharded_state_dict=sharded_state_dict, checkpoint_dir=checkpoint_path)
+
 
 def load_distributed_checkpoint(checkpoint_path, gpt_model):
     sharded_state_dict=gpt_model.sharded_state_dict(prefix='')
     checkpoint = dist_checkpointing.load(sharded_state_dict=sharded_state_dict, checkpoint_dir=checkpoint_path)
     gpt_model.load_state_dict(checkpoint)
     return gpt_model
+
 
 if __name__ == "__main__":
     initialize_distributed(tensor_model_parallel_size=2, pipeline_model_parallel_size=1)

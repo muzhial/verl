@@ -130,7 +130,7 @@ if __name__ == "__main__":
     tool_schema = OmegaConf.to_container(tools_config["tools"][0]["tool_schema"])
     tools = json.dumps([tool_schema])
 
-    data = datasets.load_dataset("JoeYing/ReTool-SFT")["train"]
+    data = datasets.load_dataset("dataset/retool-sft")["train"]
     data = data.map(process, fn_kwargs={"tools": tools})
-    save_path = os.path.expanduser("~/ReTool-SFT/data/train-00000-of-00001.parquet")
+    save_path = os.path.expanduser("dataset/retool-sft-proc/train-00000-of-00001.parquet")
     data.to_parquet(save_path)

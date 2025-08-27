@@ -10,9 +10,9 @@ IFS=',' read -ra number_array <<< "$cuda_visible_devices"
 array_length=${#number_array[@]}
 nproc_per_node=$array_length
 
-model_path=/mnt/nas_data2/chenjn_workspace/datasets/HF/Qwen/Qwen2.5-1.5B-Instruct
+model_path=${2:-/mnt/nas_data2/chenjn_workspace/datasets/HF/Qwen/Qwen2.5-3B-Instruct}
 project_name=verl_grpo_example_gsm8k
-experiment_name=qwen2.5_1.5b_function_rm
+experiment_name=qwen2.5_3b_function_rm
 
 CUDA_VISIBLE_DEVICES=$cuda_visible_devices python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
