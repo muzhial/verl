@@ -56,7 +56,7 @@ class TestProfilerConfig(unittest.TestCase):
         from verl.utils.profiler.config import ProfilerConfig
 
         # Create a new ProfilerConfig instance
-        config = ProfilerConfig(all_ranks=False, ranks=[0], extra={"key": "value"})
+        config = ProfilerConfig(all_ranks=False, ranks=[0])
 
         with self.assertRaises(FrozenInstanceError):
             config.all_ranks = True
@@ -69,10 +69,6 @@ class TestProfilerConfig(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             config["ranks"] = [1, 2, 3]
-
-        assert config["extra"]["key"] == "value"
-        config["extra"]["key"] = "value2"
-        assert config["extra"]["key"] == "value2"
 
 
 class TestNsightSystemsProfiler(unittest.TestCase):
@@ -124,8 +120,9 @@ class TestNsightSystemsProfiler(unittest.TestCase):
         mock_self = MagicMock()
         mock_self.profiler = self.profiler
         mock_self.profiler.this_step = True
+        decorator = mock_self.profiler.annotate(message="test")
 
-        @NsightSystemsProfiler.annotate(message="test")
+        @decorator
         def test_func(self, *args, **kwargs):
             return "result"
 

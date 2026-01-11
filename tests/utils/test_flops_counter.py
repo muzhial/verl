@@ -16,9 +16,9 @@ import math
 
 import pytest
 
-from verl.utils.flops_counter import FlopsCounter
+from verl.utils.flops_counter import _DEVICE_FLOPS, FlopsCounter, get_device_flops
 
-VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"}
+VALID_CONFIG_TYPE = {"llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus"}
 
 
 class Config:
@@ -206,12 +206,106 @@ CONFIG = {
         # total: 986195089686528 / 1e12 = 986.195089686528
         "expected_flops_tuple": (283517065887744 / 1e12, 986195089686528 / 1e12),
     },
+    "gpt_oss": {
+        "config": {
+            "model_type": "gpt_oss",
+            "vocab_size": 201088,
+            "hidden_size": 2880,
+            "num_hidden_layers": 24,
+            "num_attention_heads": 64,
+            "num_key_value_heads": 8,
+            "head_dim": 64,
+            "intermediate_size": 2880,
+            "num_local_experts": 32,
+            "num_experts_per_tok": 4,
+            "sliding_window": 128,
+            "layer_types": [
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "full_attention",
+            ],
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # GPT-OSS has alternating sliding / full attention
+        # Even layers (12 layers) use sliding window attention with window_size = 128
+        # Odd layers  (12 layers) use full attention
+        #
+        # Non-attention FLOPs:
+        # vocab part: 201088 * 2880 * 2 = 1158266880
+        # attn linear part per layer:
+        #   Q: 2880 * (64 * 64) = 11796480
+        #   K: 2880 * (8  * 64) = 1474560
+        #   V: 2880 * (8  * 64) = 1474560
+        #   O: (64 * 64) * 2880 = 11796480
+        #   attn linear total = 26542080
+        # mlp (MoE, SwiGLU) part per layer:
+        #   gate: 2880 * 32 = 92160
+        #   active experts: 3 * 2880 * 2880 * 4 = 99532800
+        #   mlp total = 99624960
+        # total per layer: 26542080 + 99624960 = 126167040
+        # all layers:
+        #   126167040 * 24 = 3028008960
+        # total dense params:
+        #   3028008960 + 1158266880 = 4186275840
+        #
+        # For batch [512, 1024, 2048], tokens_sum = 3584:
+        # dense flops: 6 * 4186275840 * 3584 = 90021675663360
+        # seqlen_square_sum: 71565312 (calculated with sliding window logic)
+        # attn flops: 12 * 71565312 * 64 * 64 = 3517578215424
+        # total: 93539253878784 / 1e12 = 93.539253878784
+        #
+        # For batch [4096, 4096, 4096], tokens_sum = 12288:
+        # dense flops: 6 * 4186275840 * 12288 = 308646629068800
+        # seqlen_square_sum: 622854144 (calculated with sliding window logic)
+        # attn flops: 12 * 622854144 * 64 * 64 = 30613642948608
+        # total: 339260272017408 / 1e12 = 339.260272017408
+        "expected_flops_tuple": (93539253878784 / 1e12, 339260272017408 / 1e12),
+    },
+    "apertus": {
+        "config": {  # swiss-ai/Apertus-8B
+            "model_type": "apertus",
+            "vocab_size": 131072,
+            "hidden_size": 4096,
+            "intermediate_size": 21504,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 32,
+            "hidden_act": "xielu",
+            # head_dim will be derived as 4096 / 32 = 128
+        },
+        "batch_seqlens_tuple": ([512, 1024, 2048], [4096, 4096, 4096]),
+        # Calculation for Apertus (hidden_act="xielu" -> MLP uses [k_mlp=2]*H*I params; qk_norm=True -> [k_qkn=2]*H):
+        # V=131072, H=4096, I=21504, L=32, k_mlp=2 (XIELU), k_qkn=2 (QK norm), S=6
+        # S*(2*V*H + L*(4*H**2 + k_mlp*H*I + k_qkn*H)) * (SUM[seqlen]) + 12*SUM[seqlen**2]*L*H
+        "expected_flops_tuple": (199154680725504 / 1e12, 732294071451648 / 1e12),
+    },
 }
 
 
 @pytest.mark.parametrize(
     "config_type",
-    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text"],
+    ["llama", "qwen2", "qwen3", "qwen3_moe", "deepseek_v3", "mistral", "gemma3_text", "apertus", "gpt_oss"],
 )
 def test_flops_counter(config_type: str):
     test_config = CONFIG[config_type]
@@ -226,3 +320,8 @@ def test_flops_counter(config_type: str):
         assert math.isclose(counted_flops, expected_flops), (
             f"Expect flops for {test_config['config']} is {expected_flops}, but get {counted_flops}"
         )
+
+
+def test_device_flops():
+    for key, val in _DEVICE_FLOPS.items():
+        assert get_device_flops(unit="B", device_name=key) == val

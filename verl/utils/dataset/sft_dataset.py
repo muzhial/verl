@@ -24,8 +24,9 @@ import os
 import json
 import copy
 import logging
-
 from dataclasses import dataclass
+
+import numpy as np
 import pandas as pd
 from PIL import Image
 import torch
@@ -51,7 +52,7 @@ class SFTDataset(Dataset):
         config (OmegaConf): the data config
     """
 
-    def __init__(self, parquet_files: str | ListConfig, tokenizer, config):
+    def __init__(self, parquet_files: str | ListConfig, tokenizer, config, max_samples: int = -1):
         prompt_key = config.get("prompt_key", "prompt")
         prompt_dict_keys = config.get("prompt_dict_keys", None)
         response_key = config.get("response_key", "response")
@@ -59,6 +60,8 @@ class SFTDataset(Dataset):
         max_length = config.get("max_length", 1024)
         truncation = config.get("truncation", "error")
         use_shm = config.get("use_shm", False)
+        self.shuffle = config.get("shuffle", False)
+        self.seed = config.get("seed")
         self.apply_chat_template_kwargs = config.get("apply_chat_template_kwargs", {})
 
         assert truncation in ["error", "left", "right"]
@@ -69,6 +72,7 @@ class SFTDataset(Dataset):
             parquet_files = [parquet_files]
 
         self.parquet_files = parquet_files
+        self.max_samples = max_samples
         if isinstance(tokenizer, str):
             tokenizer = hf_tokenizer(tokenizer)
         self.tokenizer: PreTrainedTokenizer = tokenizer
@@ -102,6 +106,20 @@ class SFTDataset(Dataset):
             dataframe = pd.read_parquet(parquet_file)
             dataframes.append(dataframe)
         self.dataframe = pd.concat(dataframes)
+
+        total = len(self.dataframe)
+        print(f"dataset len: {len(self.dataframe)}")
+
+        if self.max_samples > 0 and self.max_samples < total:
+            if self.shuffle:
+                rngs_args = (self.seed,) if self.seed is not None else ()
+                rng = np.random.default_rng(*rngs_args)
+                indices = rng.choice(total, size=self.max_samples, replace=False)
+            else:
+                indices = np.arange(self.max_samples)
+            self.dataframe = self.dataframe.iloc[indices.tolist()]
+            print(f"selected {self.max_samples} random samples out of {total}")
+
         self.prompts = self.dataframe[self.prompt_key]
         for key in self.prompt_dict_keys:
             # type(x): pandas.core.series.Series
