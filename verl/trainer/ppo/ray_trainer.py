@@ -588,7 +588,10 @@ class RayPPOTrainer:
             return reward_tensor, reward_extra_infos_dict
 
     def _get_gen_batch(self, batch: DataProto) -> DataProto:
-        reward_model_keys = set({"data_source", "reward_model", "extra_info", "uid"}) & batch.non_tensor_batch.keys()
+        reward_model_keys = (
+            set({"data_source", "reward_model", "extra_info", "uid", "question", "ground_truth", "choices"})
+            & batch.non_tensor_batch.keys()
+        )
 
         # pop those keys for generation
         batch_keys_to_pop = []

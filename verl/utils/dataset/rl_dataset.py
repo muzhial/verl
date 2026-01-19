@@ -318,7 +318,8 @@ class RLHFDataset(Dataset):
                     if isinstance(image, Image.Image):
                         image = image.convert("RGB")
                     elif isinstance(image, dict) and "bytes" in image:
-                        image["image"] = Image.open(BytesIO(image["bytes"]))
+                        # Convert bytes dict to PIL.Image directly for qwen_vl_utils compatibility
+                        image = Image.open(BytesIO(image["bytes"])).convert("RGB")
                     content_list.append({"type": "image", "image": image})
                     image_offset += 1
                 elif segment == "<video>":
